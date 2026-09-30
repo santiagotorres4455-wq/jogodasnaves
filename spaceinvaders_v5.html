@@ -1,0 +1,329 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+<script src="https://code.jquery.com/jquery-3.7.1.slim.js"
+integrity="sha256-UgvvN8vBkgO0luPSUl2s8TIlOSYRoGFAX4jlCIm9Adc=" crossorigin="anonymous">
+</script>
+<style>
+canvas {
+  border: 1px solid #000;
+  background: #1a1a2e;
+}
+</style>
+<meta charset="UTF-8">
+<meta name="viewport" content="width=device-width, initial-scale=1.0">
+<title>Space Invaders</title>
+</head>
+<body>
+<canvas id="quadro" width="600" height="500"></canvas>
+<script>
+$().ready(function () {
+
+  var canvas = $("#quadro")[0]
+  var ctx = canvas.getContext("2d")
+
+  // los puntos comienzan en 0  
+  // estado puede ser "jugando", "perdido" o "ganado"
+  var puntos = 0
+  var estado = "jugando"
+
+  // nave del jugador, se mueve solo en el eje X (abajo del canvas)
+  var jugador = {
+    x: 270,
+    y: 460,
+    vx: 0,
+    cor: "white"
+  }
+
+  // bala del jugador, arranca apagada hasta que se dispara
+  var bala = {
+    x: 0,
+    y: 0,
+    vy: -6, //siempre pra arriba
+    cor: "yellow",
+    vivo: false
+  }
+
+  // bala de los enemigos, misma logica pero pra abajo
+  var balaEnemigo = {
+    x: 0,
+    y: 0,
+    vy: 4, // positivo, al reves que la del jugador, pra que baje
+    cor: "white",
+    vivo: false
+  }
+
+  // array de enemigos {x, y, vivo}
+  var enemigos = []
+  var filas = 3
+  var columnas = 6
+  var anchoEnemigo = 60
+  var altoEnemigo = 20
+  var espacio = 15
+  var offsetTop = 30
+  var offsetLeft = 83
+  var coresPorFila = ["#ff595e", "#ffca3a", "#8ac926"]
+
+  //  puntos que da cada fila (la de arriba vale mas)
+  var puntosPorFila = [30, 20, 10]
+
+  // doble loop pra crear cada enemigo en su posicion
+  for (var f = 0; f < filas; f++) {
+    for (var c = 0; c < columnas; c++) {
+      var enemigoX = offsetLeft + c * (anchoEnemigo + espacio);
+      var enemigoY = offsetTop + f * (altoEnemigo + espacio);
+      enemigos.push({
+        x: enemigoX,
+        y: enemigoY,
+        fila: f,
+        vivo: true
+      });
+    }
+  }
+
+  // array de escombros {x, y, vivo}
+  var escombros = []
+  var escombroTam = 10
+  var espacioEscombro = 2
+  var gruposX = [100, 290, 480]
+  var filasEscombro = 3
+  var columnasEscombro = 4
+  var yEscombro = 380
+
+  for (var e = 0; e < gruposX.length; e++) {
+    for (var fe = 0; fe < filasEscombro; fe++) {
+      for (var ce = 0; ce < columnasEscombro; ce++) {
+        escombros.push({
+          x: gruposX[e] + ce * (escombroTam + espacioEscombro),
+          y: yEscombro + fe * (escombroTam + espacioEscombro),
+          vivo: true
+        });
+      }
+    }
+  }
+
+  // limpa a tela pra poder redesenhar cada frame
+  function apagaTela() {
+    ctx.clearRect(0, 0, canvas.width, canvas.height);
+  }
+
+  // laco de animacao
+  function animacao() {
+    apagaTela();
+
+    // mueve el jugador segun su velocidad
+    jugador.x = jugador.x + jugador.vx;
+
+    // Tope para el jugador (izquierda/derecha)
+    function verificaLimiteJugador() {
+      if (jugador.x <= 0) {
+        jugador.x = 0;
+      }
+      if (jugador.x + 40 >= canvas.width) {
+        jugador.x = canvas.width - 40;
+      }
+    }
+
+    function moverBala() {
+      if (bala.vivo) {
+        bala.y = bala.y + bala.vy;
+        if (bala.y <= 0) {
+          bala.vivo = false;
+        }
+      }
+    }
+
+    function moverBalaEnemigo() {
+      if (balaEnemigo.vivo) {
+        balaEnemigo.y = balaEnemigo.y + balaEnemigo.vy;
+        if (balaEnemigo.y >= canvas.height) {
+          balaEnemigo.vivo = false;
+        }
+      }
+    }
+
+    function disparaEnemigo() {
+      if (balaEnemigo.vivo) return;
+      if (Math.random() < 0.015) {
+        var vivos = enemigos.filter(function (en) { return en.vivo; });
+        if (vivos.length > 0) {
+          var elegido = vivos[Math.floor(Math.random() * vivos.length)];
+          balaEnemigo.x = elegido.x + anchoEnemigo / 2 - 2;
+          balaEnemigo.y = elegido.y + altoEnemigo;
+          balaEnemigo.vivo = true;
+        }
+      }
+    }
+
+    function colisionaConEscombros(proyectil) {
+      if (!proyectil.vivo) return;
+      for (var i = 0; i < escombros.length; i++) {
+        var es = escombros[i];
+        if (!es.vivo) continue;
+        var chocaX = proyectil.x + 4 >= es.x && proyectil.x <= es.x + escombroTam;
+        var chocaY = proyectil.y + 12 >= es.y && proyectil.y <= es.y + escombroTam;
+        if (chocaX && chocaY) {
+          es.vivo = false;
+          proyectil.vivo = false;
+          break;
+        }
+      }
+    }
+
+    // colision de la bala del jugador con los enemigos
+    function colisaoBalaEnemigos() {
+      if (!bala.vivo) return;
+      for (var i = 0; i < enemigos.length; i++) {
+        var en = enemigos[i];
+        if (!en.vivo) continue;
+        var chocaX = bala.x + 4 >= en.x && bala.x <= en.x + anchoEnemigo;
+        var chocaY = bala.y + 12 >= en.y && bala.y <= en.y + altoEnemigo;
+        if (chocaX && chocaY) {
+          en.vivo = false;
+          bala.vivo = false;
+          puntos = puntos + puntosPorFila[en.fila]; //  suma puntos segun la fila
+          break;
+        }
+      }
+    }
+
+    //  colision de la bala enemiga con el jugador -> perdes
+    function colisionBalaJugador() {
+      if (!balaEnemigo.vivo) return;
+      // la nave ocupa 40 de ancho y 15 de alto desde (jugador.x, jugador.y)
+      var chocaX = balaEnemigo.x + 4 >= jugador.x && balaEnemigo.x <= jugador.x + 40;
+      var chocaY = balaEnemigo.y + 12 >= jugador.y && balaEnemigo.y <= jugador.y + 15;
+      if (chocaX && chocaY) {
+        balaEnemigo.vivo = false;
+        estado = "perdido";
+      }
+    }
+
+    //  si no queda ningun enemigo vivo, ganas
+    function verificaVictoria() {
+      var quedan = enemigos.filter(function (en) { return en.vivo; });
+      if (quedan.length === 0) {
+        estado = "ganado";
+      }
+    }
+
+    //  la logica solo corre mientras se esta jugando
+    // (si perdiste o ganaste, todo queda congelado)
+    if (estado === "jugando") {
+      verificaLimiteJugador();
+      moverBala();
+      moverBalaEnemigo();
+      disparaEnemigo();
+      colisionaConEscombros(bala);
+      colisionaConEscombros(balaEnemigo);
+      colisaoBalaEnemigos();
+      colisionBalaJugador();
+      verificaVictoria();
+    }
+
+    // dibuja el jugador con forma de triangulo (nave)
+    ctx.fillStyle = jugador.cor;
+    ctx.beginPath();
+    ctx.moveTo(jugador.x + 20, jugador.y);
+    ctx.lineTo(jugador.x, jugador.y + 15);
+    ctx.lineTo(jugador.x + 40, jugador.y + 15);
+    ctx.closePath();
+    ctx.fill();
+
+    if (bala.vivo) {
+      ctx.fillStyle = bala.cor;
+      ctx.fillRect(bala.x, bala.y, 4, 12);
+    }
+
+    if (balaEnemigo.vivo) {
+      ctx.fillStyle = balaEnemigo.cor;
+      ctx.fillRect(balaEnemigo.x, balaEnemigo.y, 4, 12);
+    }
+
+    function dibujaEnemigos() {
+      for (var i = 0; i < enemigos.length; i++) {
+        var en = enemigos[i];
+        if (en.vivo) {
+          ctx.fillStyle = coresPorFila[en.fila];
+          ctx.fillRect(en.x, en.y, anchoEnemigo, altoEnemigo);
+          ctx.strokeStyle = "#1a1a2e";
+          ctx.lineWidth = 2;
+          ctx.strokeRect(en.x, en.y, anchoEnemigo, altoEnemigo);
+        }
+      }
+    }
+    dibujaEnemigos();
+
+    function dibujaEscombros() {
+      for (var i = 0; i < escombros.length; i++) {
+        var es = escombros[i];
+        if (es.vivo) {
+          ctx.fillStyle = "gray";
+          ctx.fillRect(es.x, es.y, escombroTam, escombroTam);
+        }
+      }
+    }
+    dibujaEscombros();
+
+    // dibuja el puntaje arriba a la izquierda
+    ctx.fillStyle = "white";
+    ctx.font = "16px Arial";
+    ctx.textAlign = "left";
+    ctx.fillText("Puntos: " + puntos, 10, 20);
+
+    //  pantalla de fin de juego
+    if (estado !== "jugando") {
+      ctx.fillStyle = "rgba(0, 0, 0, 0.7)"; // capa oscura semitransparente
+      ctx.fillRect(0, 0, canvas.width, canvas.height);
+
+      ctx.fillStyle = (estado === "ganado") ? "#8ac926" : "#ff595e";
+      ctx.font = "48px Arial";
+      ctx.textAlign = "center";
+      ctx.fillText(estado === "ganado" ? "¡GANASTE!" : "PERDISTE", canvas.width / 2, 220);
+
+      ctx.fillStyle = "white";
+      ctx.font = "24px Arial";
+      ctx.fillText("Puntos: " + puntos, canvas.width / 2, 270);
+      ctx.font = "16px Arial";
+      ctx.fillText("Presiona R para jugar de nuevo", canvas.width / 2, 310);
+    }
+
+    requestAnimationFrame(animacao);
+  }
+  animacao();
+
+  // segundo ready, escuta as teclas
+  $().ready(function () {
+    $(document).keydown(function (event) {
+      // NUEVO: R reinicia el juego (recarga la pagina) solo si ya termino
+      if (event.which == 82 && estado !== "jugando") {
+        location.reload();
+      }
+      if (estado !== "jugando") return; // sin controles si el juego termino
+
+      if (event.which == 65) { //a
+        jugador.vx = -5;
+      }
+      if (event.which == 68) { //d
+        jugador.vx = 5;
+      }
+      if (event.which == 32) { //espacio, dispara
+        if (!bala.vivo) {
+          bala.x = jugador.x + 18;
+          bala.y = jugador.y;
+          bala.vivo = true;
+        }
+      }
+    });
+
+    $(document).keyup(function (event) {
+      if (event.which == 65 || event.which == 68) {
+        jugador.vx = 0;
+      }
+    });
+  });
+
+});
+</script>
+</body>
+</html>
